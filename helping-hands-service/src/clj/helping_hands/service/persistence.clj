@@ -1,5 +1,6 @@
 (ns helping-hands.service.persistence
-  (:require [xtdb.api :as xt]))
+  (:require [xtdb.api :as xt]
+            [helping-hands.service.utils :as u]))
 
 (defprotocol ServiceDb
   "Abstraction for service database"
@@ -14,7 +15,7 @@
   (let [fields-to-pull (if (empty? fields) '[*] fields)]
     (xt/pull (xt/db node) fields-to-pull id)))
 
-(defrecord ServiceDbXt [node]
+(defrecord ServiceDbXtDb [node]
   ServiceDb
   (upsert [_ id type provider area cost rating status]
           (let [current-service (get-entity node id [])]
@@ -36,6 +37,19 @@
           (->> (xt/submit-tx node [[::xt/delete id]])
                (xt/await-tx node))))
 
-(defn create-service-database []
-  (->> (xt/start-node {})
-       (->ServiceDbXt)))
+(defn create-service-database 
+  "Creates a service database and returns the connection"
+  []
+  (let [home-dir (System/getenv "HOME")
+        rocksdb-dir (str home-dir (if (u/windows?) "\\.rocksdb\\" "/.rocksdb/"))
+        ix-store (u/abs-path->uri (str rocksdb-dir "service-ix-store"))
+        doc-store (u/abs-path->uri (str rocksdb-dir "service-doc-store"))
+        tx-log (u/abs-path->uri (str rocksdb-dir "service-tx-log"))]
+    (->> (xt/start-node
+          {:xtdb/index-store {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                         :db-dir ix-store}}
+           :xtdb/document-store {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                            :db-dir doc-store}}
+           :xtdb/tx-log {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                    :db-dir tx-log}}})
+         (->ServiceDbXtDb))))

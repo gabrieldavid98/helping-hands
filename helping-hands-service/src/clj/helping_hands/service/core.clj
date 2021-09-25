@@ -1,7 +1,7 @@
 (ns helping-hands.service.core
-  (:require [cheshire.core :as jp]
-            [clojure.string :as s]
+  (:require [clojure.string :as s]
             [helping-hands.service.persistence :as p]
+            [helping-hands.service.http :refer [json]]
             [io.pedestal.interceptor.chain :as chain])
   (:import [java.io IOException]
            [java.util UUID]))
@@ -51,16 +51,14 @@
             params (assoc params :fields fields)]
         (assoc context :tx-data params))
       (chain/terminate
-       (assoc context
-              :response {:status 400
-                        :body (str "ID, type, provider, area and cost is mandatory "
-                                   "and rating, cost must be a number with type "
-                                   "having one if values A, NA or D")})))))
+       (json context :bad-request (str "ID, type, provider, area and cost is mandatory "
+                                       "and rating, cost must be a number with type "
+                                       "having one if values A, NA or D"))))))
 
-(defn error-handler' [context ex-info]
-  (assoc context
-         :response {:status 500
-                    :body (.getMessage ex-info)}))
+(defn error-handler'
+  "Handles interceptor errors"
+  [context ex-info]
+  (json context :internal-server-error (.getMessage ex-info)))
 
 (def validate-id
   {:name ::validate-id
@@ -70,9 +68,7 @@
                     (-> context :request :path-params :id))
               (prepare-valid-context context)
               (chain/terminate
-               (assoc context
-                      :response {:status 400
-                                 :body "Invalid Service ID"}))))
+               (json context :bad-request "Invalid Service ID"))))
    :error error-handler'})
 
 (def validate-id-get
@@ -92,13 +88,9 @@
                         params (assoc params :fields fields)]
                     (assoc context :tx-data params))
                   (chain/terminate
-                   (assoc context
-                          :response {:status 400
-                                     :body "Invalid Service ID"}))))
+                   (json context :bad-request "Invalid Service ID"))))
               (chain/terminate
-               (assoc context
-                      :response {:status 400
-                                 :body "Invalid Service ID"}))))
+               (json context :bad-request "Invalid Service ID"))))
    :error error-handler'})
 
 (def validate
@@ -107,9 +99,7 @@
             (if (-> context :request :form-params)
               (prepare-valid-context context)
               (chain/terminate
-               (assoc context
-                      :response {:status 400
-                                 :body "Invalid parameters"}))))
+               (json context :bad-request "Invalid parameters"))))
    :error error-handler'})
 
 (def get-service
@@ -119,12 +109,8 @@
                   fields (-> context :tx-data :fields)
                   entity (.entity @servicedb id fields)]
               (if (empty? entity)
-                (assoc context
-                       :response {:status 404
-                                  :body "No such service"})
-                (assoc context
-                       :response {:status 200
-                                  :body (jp/generate-string entity)}))))
+                (json context :not-found "No such service")
+                (json context :ok entity))))
    :error error-handler'})
 
 (def upsert-service
@@ -140,10 +126,7 @@
               (if (nil? tx)
                 (throw (IOException. 
                         (str "Upsert failed for service: " id)))
-                (assoc context
-                       :response {:status 200
-                                  :body (jp/generate-string
-                                         (.entity @servicedb id []))}))))})
+                (json context :ok (.entity @servicedb id [])))))})
 
 (def create-service
   {:name ::service-create
@@ -156,10 +139,7 @@
               (if (nil? tx)
                 (throw (IOException.
                         (str "Service creation failed")))
-                (assoc context
-                       :response {:status 201
-                                  :body (jp/generate-string
-                                         (.entity @servicedb id []))}))))
+                (json context :created (.entity @servicedb id [])))))
    :error error-handler'})
 
 (def delete-service
@@ -170,7 +150,5 @@
               (if (nil? tx)
                 (throw (IOException.
                         (str "Delete failed for service: " id)))
-                (assoc context
-                       :response {:status 200
-                                  :body "Success"}))))
+                (json context :ok "Success"))))
    :error error-handler'})

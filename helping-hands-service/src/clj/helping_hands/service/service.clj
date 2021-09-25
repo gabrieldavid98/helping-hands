@@ -1,23 +1,9 @@
 (ns helping-hands.service.service
   (:require [io.pedestal.http :as http]
-            [io.pedestal.http.route :as route]
             [io.pedestal.http.body-params :as body-params]
             [io.pedestal.interceptor.chain :as chain]
-            [ring.util.response :as ring-resp]
-            [cheshire.core :as jp]
-            [helping-hands.service.core :as core]))
-
-(defn about-page
-  [request]
-  (ring-resp/response (format "Clojure %s - served from %s"
-                              (clojure-version)
-                              (route/url-for ::about-page))))
-
-(defn home-page
-  [request]
-  (ring-resp/response (if-let [uid (-> request :tx-data :user (get "uid"))]
-                        (jp/generate-string {:msg (str "Hello " uid "!")})
-                        (jp/generate-string {:msg (str "Hello World!")}))))
+            [helping-hands.service.core :as core]
+            [helping-hands.service.http :refer [json]]))
 
 (defn- get-uid
   "TODO: Integrate with Auth Service"
@@ -33,59 +19,46 @@
               (if-let [uid (and (not (nil? token)) (get-uid token))]
                 (assoc-in context [:request :tx-data :user] uid)
                 (chain/terminate
-                 (assoc context
-                        :response {:status 401
-                                   :body "Auth token not found"})))))
-   :error (fn [context ex-info]
-            (assoc context
-                   :response {:status 500
-                              :body (.getMessage ex-info)}))})
+                 (json context :unauthorized "Auth token not found")))))
+   :error core/error-handler'})
 
 (def gen-events
   {:name ::gen-events
    :enter identity
-   :error (fn [context ex-info]
-            (assoc context
-                   :response {:status 500
-                              :body (.getMessage ex-info)}))})
+   :error core/error-handler'})
 
 ;; Defines "/" and "/about" routes with their associated :get handlers.
 ;; The interceptors defined after the verb map (e.g., {:get home-page}
 ;; apply to / and its children (/about).
-(def common-interceptors [(body-params/body-params) http/html-body])
+(def common-interceptors [(body-params/body-params) http/html-body `auth])
 
 ;; Tabular routes
-(def routes #{["/services/:id" 
+(def routes #{["/services/:id"
                :get (conj common-interceptors
-                          `auth
                           `core/validate-id-get
                           `core/get-service
                           `gen-events)
                :route-name :service-get]
               ["/services/:id" 
                :put (conj common-interceptors 
-                          `auth
                           `core/validate-id
                           `core/upsert-service
                           `gen-events)
                :route-name :service-put]
               ["/services/:id/rate"
                :put (conj common-interceptors
-                          `auth
                           `core/validate-id
                           `core/upsert-service
                           `gen-events)
                :route-name :service-rate]
               ["/services" 
                :post (conj common-interceptors
-                           `auth
                            `core/validate
                            `core/create-service
                            `gen-events)
                :route-name :service-post]
               ["/services/:id" 
                :delete (conj common-interceptors
-                             `auth
                              `core/validate-id-get
                              `core/delete-service
                              `gen-events)
@@ -136,7 +109,7 @@
               ;;  This can also be your own chain provider/server-fn -- http://pedestal.io/reference/architecture-overview#_chain_provider
               ::http/type :jetty
               ;;::http/host "localhost"
-              ::http/port 8080
+              ::http/port 8081
               ;; Options to pass to the container (Jetty)
               ::http/container-options {:h2c? true
                                         :h2? false
