@@ -1,7 +1,8 @@
 (ns helping-hands.consumer.persistence
-  (:require [datomic.client.api :as d]))
+  (:require [xtdb.api :as xt]
+            [helping-hands.consumer.utils :as u]))
 
-(defprotocol consumer-db
+(defprotocol ConsumerDb
   "Abstraction for consumer database"
   (upsert [this id name address mobile email geo]
           "Adds/Updates a consumer entity")
@@ -10,73 +11,45 @@
   (delete [this id]
           "Deletes the specified consumer entity"))
 
-(defn- get-entity-id
-  [conn id]
-  (-> (d/q '[:find ?e
-             :in $ ?id
-             :where [?e :consumer/id ?id]]
-           (d/db conn)
-           (str id))
-      ffirst))
-
 (defn- get-entity
-  [conn id]
-  (let [eid (get-entity-id conn id)]
-    (d/pull (d/db conn) '[*] eid)))
+  [node id fields]
+  (let [fields (if (empty? fields) '[*] fields)] 
+    (xt/pull (xt/db node) fields id)))
 
-(defrecord consumer-db-datomic [conn]
-  consumer-db
+(defrecord ConsumerDbXtDb [node]
+  ConsumerDb
   (upsert [_ id name address mobile email geo]
-          (d/transact conn {:tx-data (->> {:db/id id
-                                           :consumer/id id
-                                           :consumer/name name
-                                           :consumer/address address
-                                           :consumer/mobile mobile
-                                           :consumer/email email
-                                           :consumer/geo geo}
-                                          (filter (comp some? val))
-                                          (into {})
-                                          (vector))}))
-  (entity [_ id flds]
-          (when-let [consumer (get-entity conn id)]
-            (if (empty? flds)
-              consumer
-              (select-keys consumer (map keyword flds)))))
+          (let [current-consumer (get-entity node id [])]
+            (->> (xt/submit-tx node [[::xt/put
+                                      (->> {:xt/id id
+                                            :consumer/name name
+                                            :consumer/address address
+                                            :consumer/mobile mobile
+                                            :consumer/email email
+                                            :consumer/geo geo}
+                                           (filter (comp some? val))
+                                           (into {})
+                                           (merge current-consumer))]])
+                (xt/await-tx node))))
+  (entity [_ id fields]
+          (get-entity node id fields))
   (delete [_ id]
-          (when-let [eid (get-entity-id conn id)]
-            (d/transact conn {:tx-data [[:db/retractEntity eid]]}))))
+          (->> (xt/submit-tx node [[::xt/delete id]])
+               (xt/await-tx node))))
 
 (defn create-consumer-database
   "Creates a consumer database and returns the connection"
-  [d]
-  (let [cfg {:server-type :dev-local :system "helping-hands-consumer"}
-        client (d/client cfg)
-        db (d/create-database client {:db-name d})
-        conn (d/connect client {:db-name d})]
-    (when db
-      (d/transact conn {:tx-data [{:db/ident :consumer/id
-                                   :db/valueType :db.type/string
-                                   :db/cardinality :db.cardinality/one
-                                   :db/doc "Unique Consumer ID"
-                                   :db/unique :db.unique/identity}
-                                  {:db/ident :consumer/name
-                                   :db/valueType :db.type/string
-                                   :db/cardinality :db.cardinality/one
-                                   :db/doc "Display Name for the Consumer"}
-                                  {:db/ident :consumer/address
-                                   :db/valueType :db.type/string
-                                   :db/cardinality :db.cardinality/one
-                                   :db/doc "Consumer Address"}
-                                  {:db/ident :consumer/mobile
-                                   :db/valueType :db.type/string
-                                   :db/cardinality :db.cardinality/one
-                                   :db/doc "Consumer Mobile Number"}
-                                  {:db/ident :consumer/email
-                                   :db/valueType :db.type/string
-                                   :db/cardinality :db.cardinality/one
-                                   :db/doc "Consumer Email Address"}
-                                  {:db/ident :consumer/geo
-                                   :db/valueType :db.type/string
-                                   :db/cardinality :db.cardinality/one
-                                   :db/doc "Latitude,Longitude CSV"}]}))
-    (->consumer-db-datomic conn)))
+  []
+  (let [home-dir (System/getenv "HOME")
+        rocksdb-dir (str home-dir (if (u/windows?) "\\.rocksdb\\" "/.rocksdb/"))
+        ix-store (u/abs-path->uri (str rocksdb-dir "consumer-ix-store"))
+        doc-store (u/abs-path->uri (str rocksdb-dir "consumer-doc-store"))
+        tx-log (u/abs-path->uri (str rocksdb-dir "consumer-tx-log"))]
+    (->> (xt/start-node
+          {:xtdb/index-store {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                         :db-dir ix-store}}
+           :xtdb/document-store {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                            :db-dir doc-store}}
+           :xtdb/tx-log {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                    :db-dir tx-log}}})
+         (->ConsumerDbXtDb))))

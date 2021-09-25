@@ -1,11 +1,9 @@
 (ns helping-hands.consumer.service
   (:require [io.pedestal.http :as http]
-            [io.pedestal.http.route :as route]
             [io.pedestal.http.body-params :as body-params]
             [io.pedestal.interceptor.chain :as chain]
-            [ring.util.response :as ring-resp]
-            [cheshire.core :as jp]
-            [helping-hands.consumer.core :as core]))
+            [helping-hands.consumer.core :as core]
+            [helping-hands.consumer.http :refer [json]]))
 
 (defn- get-uid
   "TODO: Integrate with Auth Service"
@@ -21,73 +19,40 @@
               (if-let [uid (and (not (nil? token)) (get-uid token))]
                 (assoc-in context [:request :tx-data :user] uid)
                 (chain/terminate
-                 (assoc context
-                        :response {:status 401
-                                   :body "Auth token not found"})))))
-   :error (fn [context ex-info]
-            (assoc context
-                   :response {:status 500
-                              :body (.getMessage ex-info)}))})
-
-(defn- get-service-details
-  "TODO: Get the service details from external API"
-  [sid]
-  {"sid" sid "name" "House Cleaning"})
-
-(def data-validate 
-  {:name ::validate
-   :enter (fn [context]
-            (let [sid (-> context :request :form-params :sid)]
-              (if-let [service (and (not (nil? sid))
-                                    (get-service-details sid))]
-                (assoc-in context [:request :tx-data :service] service)
-                (chain/terminate
-                 (assoc context
-                        :response {:status 400
-                                   :body "Invalid Service ID"})))))
-   :error (fn [context ex-info]
-            (assoc context
-                   :response {:status 500
-                              :body (.getMessage ex-info)}))})
+                 (json context :unauthorized "Auth token not found")))))
+   :error core/error-handler'})
 
 (def gen-events
   {:name ::gen-events
    :enter identity
-   :error (fn [context ex-info]
-            (assoc context
-                   :response {:status 500
-                              :body (.getMessage ex-info)}))})
+   :error core/error-handler'})
 
 ;; Defines "/" and "/about" routes with their associated :get handlers.
 ;; The interceptors defined after the verb map (e.g., {:get home-page}
 ;; apply to / and its children (/about).
-(def common-interceptors [(body-params/body-params) http/html-body])
+(def common-interceptors [(body-params/body-params) http/html-body `auth])
 
 ;; Tabular routes
 (def routes #{["/consumers/:id"
                :get (conj common-interceptors
-                          `auth
                           `core/validate-id
                           `core/get-consumer
                           `gen-events)
                :route-name :consumer-get]
               ["/consumers/:id"
                :put (conj common-interceptors
-                          `auth
                           `core/validate-id
                           `core/upsert-consumer
                           `gen-events)
                :route-name :consumer-put]
               ["/consumers"
                :post (conj common-interceptors
-                           `auth
                            `core/validate
                            `core/create-consumer
                            `gen-events)
                :route-name :consumer-post]
               ["/consumers/:id"
                :delete (conj common-interceptors
-                             `auth
                              `core/validate-id
                              `core/delete-consumer
                              `gen-events)
