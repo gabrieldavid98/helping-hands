@@ -1,6 +1,7 @@
 (ns helping-hands.order.persistence
   "Persistence Port And Adapter for Order"
-  (:require [xtdb.api :as xt]))
+  (:require [xtdb.api :as xt]
+            [helping-hands.order.utils :as u]))
 
 (defprotocol OrderDb
   "Abstraction for order database"
@@ -60,6 +61,17 @@
 (defn create-order-database
   "Creates a order database and returns the connection"
   []
-  (->> (xt/start-node {})
-       (->OrderDbXtdb)))
+  (let [home-dir (System/getenv "HOME")
+        rocksdb-dir (str home-dir (if (u/windows?) "\\.rocksdb\\" "/.rocksdb/"))
+        ix-store (u/abs-path->uri (str rocksdb-dir "order-ix-store"))
+        doc-store (u/abs-path->uri (str rocksdb-dir "order-doc-store"))
+        tx-log (u/abs-path->uri (str rocksdb-dir "order-tx-log"))]
+    (->> (xt/start-node
+          {:xtdb/index-store {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                         :db-dir ix-store}}
+           :xtdb/document-store {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                            :db-dir doc-store}}
+           :xtdb/tx-log {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+                                    :db-dir tx-log}}})
+         (->OrderDbXtdb))))
 

@@ -1,23 +1,9 @@
 (ns helping-hands.order.service
   (:require [io.pedestal.http :as http]
-            [io.pedestal.http.route :as route]
             [io.pedestal.http.body-params :as body-params]
             [io.pedestal.interceptor.chain :as chain]
-            [ring.util.response :as ring-resp]
-            [cheshire.core :as jp]
-            [helping-hands.order.core :as core]))
-
-(defn about-page
-  [request]
-  (ring-resp/response (format "Clojure %s - served from %s"
-                              (clojure-version)
-                              (route/url-for ::about-page))))
-
-(defn home-page
-  [request]
-  (ring-resp/response (if-let [uid (-> request :tx-data :user (get "uid"))]
-                        (jp/generate-string {:msg (str "Hello " uid "!")})
-                        (jp/generate-string {:msg (str "Hello World!")}))))
+            [helping-hands.order.core :as core]
+            [helping-hands.order.http :refer [json]]))
 
 (defn- get-uid
   "TODO: Integrate with Auth Service"
@@ -33,13 +19,8 @@
               (if-let [uid (and (not (nil? token)) (get-uid token))]
                 (assoc-in context [:tx-data :user] uid)
                 (chain/terminate
-                 (assoc context
-                        :response {:status 401
-                                   :body "Auth token not found"})))))
-   :error (fn [context ex-info]
-            (assoc context
-                   :response {:status 500
-                              :body (.getMessage ex-info)}))})
+                 (json context :unauthorized "Auth token not found")))))
+   :error core/error-handler'})
 
 (def gen-events
   {:name ::get-events
@@ -135,7 +116,7 @@
               ;;  This can also be your own chain provider/server-fn -- http://pedestal.io/reference/architecture-overview#_chain_provider
               ::http/type :jetty
               ;;::http/host "localhost"
-              ::http/port 8080
+              ::http/port 8082
               ;; Options to pass to the container (Jetty)
               ::http/container-options {:h2c? true
                                         :h2? false

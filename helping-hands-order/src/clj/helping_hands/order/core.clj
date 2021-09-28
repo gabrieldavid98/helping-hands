@@ -1,18 +1,18 @@
 (ns helping-hands.order.core
   (:require [clojure.string :as s]
             [io.pedestal.interceptor.chain :as chain]
-            [cheshire.core :as jp]
-            [helping-hands.order.persistence :as p])
+            [helping-hands.order.persistence :as p]
+            [helping-hands.order.http :refer [json]])
   (:import [java.io IOException]
            [java.util UUID]))
 
 (def ^:private orderdb
   (delay (p/create-order-database)))
 
-(defn error-handler' [context ex-info]
-  (assoc context
-         :response {:status 500
-                    :body (.getMessage ex-info)}))
+(defn error-handler'
+  "Handles interceptor errors"
+  [context ex-info]
+  (json context :internal-server-error (.getMessage ex-info)))
 
 (defn- validate-rating-cost-ts
   "Validate the rating, cost and start/end timestamp"
@@ -43,17 +43,17 @@
 
 (defn- service-exists?
   "Validates the service via Service APIs"
-  [service]
+  [_service]
   true)
 
 (defn- provider-exists?
   "Validates the provider via Provider Service"
-  [provider]
+  [_provider]
   true)
 
 (defn- consumer-exists?
   "Validates the consumer via Consumer Service"
-  [consumer]
+  [_consumer]
   true)
 
 (defn- prepare-valid-context
@@ -88,12 +88,10 @@
             params (assoc params :fields fields)]
         (assoc context :tx-data params))
       (chain/terminate
-       (assoc context
-              :response {:status 400
-                         :body (str "ID, service, provider, consumer, "
+       (json context :bad-request (str "ID, service, provider, consumer, "
                                     "cost and status is mandatory. start/end, "
                                     "rating and cost must be a number "
-                                    "with status having one of values O, I, D or C")})))))
+                                    "with status having one of values O, I, D or C"))))))
 
 (def validate-id
   {:name ::validate-id
@@ -103,9 +101,7 @@
                     (-> context :request :path-params :id))
               (prepare-valid-context context)
               (chain/terminate
-               (assoc context
-                      :response {:status 400
-                                 :body "Invalid Order ID"}))))
+               (json context :bad-request "Invalid Order ID"))))
    :error error-handler'})
 
 (def validate-get-id
@@ -125,13 +121,9 @@
                         params (assoc params :fields fields)]
                     (assoc context :tx-data params))
                   (chain/terminate
-                   (assoc context
-                          :response {:status 400
-                                     :body "Invalid Order ID"}))))
+                   (json context :bad-request "Invalid Order ID"))))
               (chain/terminate
-               (assoc context
-                      :response {:status 400
-                                 :body "Invalid Order ID"}))))
+               (json context :bad-request "Invalid Order ID"))))
    :error error-handler'})
 
 (def validate-all-orders
@@ -145,9 +137,7 @@
                               (vector)))
                   (assoc-in [:tx-data :uid] (-> context :request :form-params :uid)))
               (chain/terminate
-               (assoc context
-                      :response {:status 400
-                                 :body "Invalid Parameters"}))))
+               (json context :bad-request "Invalid Parameters"))))
    :error error-handler'})
 
 (def validate
@@ -156,9 +146,7 @@
             (if (-> context :request :form-params)
               (prepare-valid-context context)
               (chain/terminate
-               (assoc context
-                      :response {:status 400
-                                 :body "Invalid parameters"}))))
+               (json context :bad-request "Invalid Parameters"))))
    :error error-handler'})
 
 (def get-order
@@ -168,10 +156,8 @@
                   id (UUID/fromString (:id tx-data))
                   entity (.entity @orderdb id (:fields tx-data))]
               (if (empty? entity)
-                (assoc context :response {:status 404
-                                          :body "No such order"})
-                (assoc context :response {:status 200
-                                          :body (jp/generate-string entity)}))))
+                (json context :not-found "No such order")
+                (json context :ok entity))))
    :error error-handler'})
 
 (def get-all-orders
@@ -181,10 +167,8 @@
                   uid (UUID/fromString (:uid tx-data))
                   orders (.orders @orderdb uid (:fields tx-data))]
               (if (empty? orders)
-                (assoc context :response {:status 404
-                                          :body "No such orders"})
-                (assoc context :response {:status 200
-                                          :body (jp/generate-string orders)}))))
+                (json context :not-found "No such orders")
+                (json context :ok orders))))
    :error error-handler'})
 
 (def upsert-order
@@ -199,10 +183,7 @@
               (if (nil? tx)
                 (throw (IOException.
                         (str "Upsert failed for order: " id)))
-                (assoc context
-                       :response {:status 200
-                                  :body (jp/generate-string
-                                         (.entity @orderdb id []))}))))
+                (json context :ok (.entity @orderdb id [])))))
    :error error-handler'})
 
 (def create-order
@@ -219,10 +200,7 @@
               (if (nil? tx)
                 (throw (IOException.
                         (str "Create failed")))
-                (assoc context
-                       :response {:status 200
-                                  :body (jp/generate-string
-                                         (.entity @orderdb id []))}))))
+                (json context :ok (.entity @orderdb id [])))))
    :error error-handler'})
 
 (def delete-order
@@ -230,10 +208,8 @@
    :enter (fn [context]
             (let [tx-data (:tx-data context)
                   id (UUID/fromString (:id tx-data))
-                  tx (.delete @orderdb)]
+                  tx (.delete @orderdb id)]
               (if (nil? tx)
-                (assoc context :response {:status 404
-                                          :body "No such order"})
-                (assoc context :response {:status 200
-                                          :body "Success"}))))
+                (json context :not-found "No such order")
+                (json context :ok "Success"))))
    :error error-handler'})
