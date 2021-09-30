@@ -1,23 +1,9 @@
 (ns helping-hands.provider.service
   (:require [io.pedestal.http :as http]
-            [io.pedestal.http.route :as route]
             [io.pedestal.http.body-params :as body-params]
             [io.pedestal.interceptor.chain :as chain]
-            [ring.util.response :as ring-resp]
-            [cheshire.core :as jp]
-            [helping-hands.provider.core :as core]))
-
-(defn about-page
-  [request]
-  (ring-resp/response (format "Clojure %s - served from %s"
-                              (clojure-version)
-                              (route/url-for ::about-page))))
-
-(defn home-page
-  [request]
-  (ring-resp/response (if-let [uid (-> request :tx-data :user (get "uid"))]
-                        (jp/generate-string {:msg (str "Hello " uid "!")})
-                        (jp/generate-string {:msg (str "Hello World!")}))))
+            [helping-hands.provider.core :as core]
+            [helping-hands.provider.http :refer [json]]))
 
 (defn- get-uid
   "TODO: Integrate with Auth Service"
@@ -33,83 +19,49 @@
               (if-let [uid (and (not (nil? token)) (get-uid token))]
                 (assoc-in context [:request :tx-data :user] uid)
                 (chain/terminate
-                 (assoc context
-                        :response {:status 401
-                                   :body "Auth token not found"})))))
-   :error (fn [context ex-info]
-            (assoc context
-                   :response {:status 500
-                              :body (.getMessage ex-info)}))})
-
-(defn- get-service-details
-  "TODO: Get the service details from external API"
-  [sid]
-  {"sid" sid "name" "House Cleaning"})
-
-(def data-validate 
-  {:name ::validate
-   :enter (fn [context]
-            (let [sid (-> context :request :form-params :sid)]
-              (if-let [service (and (not (nil? sid))
-                                    (get-service-details sid))]
-                (assoc-in context [:request :tx-data :service] service)
-                (chain/terminate
-                 (assoc context
-                        :response {:status 400
-                                   :body "Invalid Service ID"})))))
-   :error (fn [context ex-info]
-            (assoc context
-                   :response {:status 500
-                              :body (.getMessage ex-info)}))})
+                 (json context :unauthorized "Auth token not found")))))
+   :error core/error-handler'})
 
 (def gen-events
   {:name ::gen-events
    :enter identity
-   :error (fn [context ex-info]
-            (assoc context
-                   :response {:status 500
-                              :body (.getMessage ex-info)}))})
+   :error core/error-handler'})
 
 ;; Defines "/" and "/about" routes with their associated :get handlers.
 ;; The interceptors defined after the verb map (e.g., {:get home-page}
 ;; apply to / and its children (/about).
-(def common-interceptors [(body-params/body-params) http/html-body])
+(def common-interceptors [(body-params/body-params) http/html-body `auth])
 
 ;; Tabular routes
 (def routes #{["/providers/:id" 
-               :get (conj common-interceptors 
-                           `auth 
-                           `core/validate-id 
-                           `core/get-provider
-                           `gen-events)
+               :get (conj common-interceptors
+                          `core/validate-id
+                          `core/get-provider
+                          `gen-events)
                :route-name :provider-get]
               ["/providers/:id" 
                :put (conj common-interceptors
-                          `auth
                           `core/validate-id
                           `core/upsert-provider
                           `gen-events)
                :route-name :provider-put]
               ["/providers/:id/rate" 
                :put (conj common-interceptors
-                          `auth
                           `core/validate-id
                           `core/upsert-provider
                           `gen-events)
                :route-name :provider-rate]
               ["/providers" 
                :post (conj common-interceptors
-                          `auth
-                          `core/validate
-                          `core/create-provider
-                          `gen-events)
+                           `core/validate
+                           `core/create-provider
+                           `gen-events)
                :route-name :provider-post]
               ["/providers/:id" 
                :delete (conj common-interceptors
-                          `auth
-                          `core/validate-id
-                          `core/delete-provider
-                          `gen-events)
+                             `core/validate-id
+                             `core/delete-provider
+                             `gen-events)
                :route-name :provider-delete]})
 
 ;; Map-based routes
@@ -157,7 +109,7 @@
               ;;  This can also be your own chain provider/server-fn -- http://pedestal.io/reference/architecture-overview#_chain_provider
               ::http/type :jetty
               ;;::http/host "localhost"
-              ::http/port 8080
+              ::http/port 8083
               ;; Options to pass to the container (Jetty)
               ::http/container-options {:h2c? true
                                         :h2? false

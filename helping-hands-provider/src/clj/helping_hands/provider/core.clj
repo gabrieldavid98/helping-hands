@@ -4,7 +4,7 @@
             [clojure.string :as s]
             [helping-hands.provider.persistence :as p]
             [io.pedestal.interceptor.chain :as chain]
-            [io.pedestal.log :as log])
+            [helping-hands.provider.http :refer [json]])
   (:import [java.io IOException]
            [java.util UUID]))
 
@@ -53,15 +53,13 @@
             params (assoc params :fields fields)]
         (assoc context :tx-data params))
       (chain/terminate
-       (assoc context
-              :response {:status 400
-                         :body (str "ID, mobile is mandatory "
-                                    "and rating, since must be a number")})))))
+       (json context :bad-request (str "ID, mobile is mandatory "
+                                       "and rating, since must be a number"))))))
 
-(defn- error-handler* [context ex-info]
-  (assoc context
-         :response {:status 500
-                    :body (.getMessage ex-info)}))
+(defn error-handler'
+  "Handles interceptor errors"
+  [context ex-info]
+  (json context :internal-server-error (.getMessage ex-info)))
 
 (def validate-id
   {:name ::validate-id
@@ -71,10 +69,8 @@
                            (-> context :request :path-params :id))]
               (prepare-valid-context context)
               (chain/terminate
-               (assoc context
-                      :response {:status 400
-                                 :body "Invalid Provider ID"}))))
-   :error error-handler*})
+               (json context :bad-request "Invalid Provider ID"))))
+   :error error-handler'})
 
 (def validate
   {:name ::validate
@@ -82,10 +78,8 @@
             (if-let [_ (-> context :request :form-params)]
               (prepare-valid-context context)
               (chain/terminate
-               (assoc context
-                      :response {:status 400
-                                 :body "Invalid parameters"}))))
-   :error error-handler*})
+               (json context :bad-request "Invalid parameters"))))
+   :error error-handler'})
 
 ;; ----------------------------------------
 ;; Business Logic Interceptors
@@ -98,11 +92,9 @@
                   id (-> tx-data :id UUID/fromString)
                   entity (.entity @providerdb id (:fields tx-data))]
               (if (empty? entity)
-                (assoc context :response {:status 404
-                                          :body "Not such provider"})
-                (assoc context :response {:status 200
-                                          :body (jp/generate-string entity)}))))
-   :error error-handler*})
+                (json context :not-found "Not such provider")
+                (json context :ok entity))))
+   :error error-handler'})
 
 (def upsert-provider
   {:name ::provider-upsert
@@ -117,11 +109,8 @@
               (if (nil? tx)
                 (throw (IOException.
                         (str "Upsert failed for provider: " id)))
-                (assoc context
-                       :response {:status 200
-                                  :body (jp/generate-string
-                                         (.entity @providerdb id []))}))))
-   :error error-handler*})
+                (json context :ok (.entity @providerdb id [])))))
+   :error error-handler'})
 
 (def create-provider
   {:name ::provider-create
@@ -131,15 +120,11 @@
                   tx (.upsert @providerdb id (:name tx-data)
                               (:mobile tx-data) (:since tx-data)
                               (:rating tx-data))]
-              (log/info :create-provider [tx-data id tx])
               (if (nil? tx)
                 (throw (IOException.
                         (str "Provider creation failed")))
-                (assoc context
-                       :response {:status 200
-                                 :body (jp/generate-string
-                                        (.entity @providerdb id []))}))))
-   :error error-handler*})
+                (json context :ok (.entity @providerdb id [])))))
+   :error error-handler'})
 
 (def delete-provider
   {:name ::provider-delete
@@ -150,9 +135,7 @@
                        (UUID/randomUUID))
                   tx (.delete @providerdb id)]
               (if (nil? tx)
-                (assoc context :response {:status 404
-                                          :body "No such provider"})
-                (assoc context :response {:status 200
-                                          :body "Success"}))))
-   :error error-handler*})
+                (json context :not-found "Not such provider")
+                (json context :ok "Success"))))
+   :error error-handler'})
 
