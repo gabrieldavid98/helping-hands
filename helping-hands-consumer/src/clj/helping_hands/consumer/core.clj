@@ -1,14 +1,11 @@
 (ns helping-hands.consumer.core
   "Initialize Helping Hands Consumer Service"
   (:require [clojure.string :as s]
-            [helping-hands.consumer.persistence :as p]
             [io.pedestal.interceptor.chain :as chain]
-            [helping-hands.consumer.http :refer [json]])
+            [helping-hands.consumer.http :refer [json]]
+            [helping-hands.consumer.state :refer [consumerdb]])
   (:import [java.io IOException]
            [java.util UUID]))
-
-(def ^:private consumerdb
-  (delay (p/create-consumer-database)))
 
 (defn error-handler'
   "Handles interceptor errors"
@@ -60,7 +57,7 @@
    :enter (fn [context]
             (let [tx-data (:tx-data context)
                   id (UUID/fromString (:id tx-data))
-                  entity (.entity @consumerdb id (:fields tx-data))]
+                  entity (.entity consumerdb id (:fields tx-data))]
               (if (empty? entity)
                 (json context :not-found "No such consumer")
                 (json context :ok entity))))
@@ -71,13 +68,13 @@
    :enter (fn [context]
             (let [tx-data (:tx-data context)
                   id (UUID/fromString (:id tx-data))
-                  db (.upsert @consumerdb id (:name tx-data)
+                  db (.upsert consumerdb id (:name tx-data)
                               (:address tx-data) (:mobile tx-data)
                               (:email tx-data) (:geo tx-data))]
               (if (nil? db)
                 (throw (IOException.
                         (str "Upsert failed for consumer: " id)))
-                (json context :ok (.entity @consumerdb id [])))))
+                (json context :ok (.entity consumerdb id [])))))
    :error error-handler'})
 
 (def create-consumer
@@ -85,20 +82,20 @@
    :enter (fn [context]
             (let [tx-data (:tx-data context)
                   id (UUID/randomUUID)
-                  db (.upsert @consumerdb id (:name tx-data)
+                  db (.upsert consumerdb id (:name tx-data)
                               (:address tx-data) (:mobile tx-data)
                               (:email tx-data) (:geo tx-data))]
               (if (nil? db)
                 (throw (IOException.
                         (str "Upsert failed for consumer: " id)))
-                (json context :created (.entity @consumerdb id [])))))
+                (json context :created (.entity consumerdb id [])))))
    :error error-handler'})
 
 (def delete-consumer
   {:name ::consumer-delete
    :enter (fn [context]
             (let [tx-data (:tx-data context)
-                  db (.delete @consumerdb (:id tx-data))]
+                  db (.delete consumerdb (:id tx-data))]
               (if (nil? db)
                 (json context :not-found "No such consumer")
                 (json context :ok "Success"))))

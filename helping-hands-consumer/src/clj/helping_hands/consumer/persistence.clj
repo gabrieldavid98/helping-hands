@@ -1,6 +1,7 @@
 (ns helping-hands.consumer.persistence
   (:require [xtdb.api :as xt]
-            [helping-hands.consumer.utils :as u]))
+            [helping-hands.consumer.utils :as u]
+            [helping-hands.consumer.config :as cfg]))
 
 (defprotocol ConsumerDb
   "Abstraction for consumer database"
@@ -9,7 +10,9 @@
   (entity [this id flds]
           "Gets the specified consumer with all or requested fields")
   (delete [this id]
-          "Deletes the specified consumer entity"))
+          "Deletes the specified consumer entity")
+  (close [this]
+         "Closes the database"))
 
 (defn- get-entity
   [node id fields]
@@ -35,12 +38,14 @@
           (get-entity node id fields))
   (delete [_ id]
           (->> (xt/submit-tx node [[::xt/delete id]])
-               (xt/await-tx node))))
+               (xt/await-tx node)))
+  (close [_]
+         (.close node)))
 
 (defn create-consumer-database
   "Creates a consumer database and returns the connection"
   []
-  (let [home-dir (System/getenv "HOME")
+  (let [home-dir (cfg/get-conf :home)
         rocksdb-dir (str home-dir (if (u/windows?) "\\.rocksdb\\" "/.rocksdb/"))
         ix-store (u/abs-path->uri (str rocksdb-dir "consumer-ix-store"))
         doc-store (u/abs-path->uri (str rocksdb-dir "consumer-doc-store"))
