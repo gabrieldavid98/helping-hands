@@ -1,13 +1,10 @@
 (ns helping-hands.order.core
   (:require [clojure.string :as s]
             [io.pedestal.interceptor.chain :as chain]
-            [helping-hands.order.persistence :as p]
-            [helping-hands.order.http :refer [json]])
+            [helping-hands.order.http :refer [json]]
+            [helping-hands.order.state :refer [orderdb]])
   (:import [java.io IOException]
            [java.util UUID]))
-
-(def ^:private orderdb
-  (delay (p/create-order-database)))
 
 (defn error-handler'
   "Handles interceptor errors"
@@ -154,7 +151,7 @@
    :enter (fn [context]
             (let [tx-data (:tx-data context)
                   id (UUID/fromString (:id tx-data))
-                  entity (.entity @orderdb id (:fields tx-data))]
+                  entity (.entity orderdb id (:fields tx-data))]
               (if (empty? entity)
                 (json context :not-found "No such order")
                 (json context :ok entity))))
@@ -165,7 +162,7 @@
    :enter (fn [context]
             (let [tx-data (:tx-data context)
                   uid (UUID/fromString (:uid tx-data))
-                  orders (.orders @orderdb uid (:fields tx-data))]
+                  orders (.orders orderdb uid (:fields tx-data))]
               (if (empty? orders)
                 (json context :not-found "No such orders")
                 (json context :ok orders))))
@@ -176,14 +173,14 @@
    :enter (fn [context]
             (let [tx-data (:tx-data context)
                   id (UUID/fromString (:id tx-data))
-                  tx (.upsert @orderdb id (:service tx-data)
+                  tx (.upsert orderdb id (:service tx-data)
                               (:provider tx-data) (:consumer tx-data)
                               (:cost tx-data) (:start tx-data) (:end tx-data)
                               (:rating tx-data) (:status tx-data))]
               (if (nil? tx)
                 (throw (IOException.
                         (str "Upsert failed for order: " id)))
-                (json context :ok (.entity @orderdb id [])))))
+                (json context :ok (.entity orderdb id [])))))
    :error error-handler'})
 
 (def create-order
@@ -194,13 +191,13 @@
                   service (UUID/fromString (:service tx-data))
                   provider (UUID/fromString (:provider tx-data))
                   consumer (UUID/fromString (:consumer tx-data))
-                  tx (.upsert @orderdb id service provider consumer
+                  tx (.upsert orderdb id service provider consumer
                               (:cost tx-data) (:start tx-data) (:end tx-data)
                               (:rating tx-data) (:status tx-data))]
               (if (nil? tx)
                 (throw (IOException.
                         (str "Create failed")))
-                (json context :ok (.entity @orderdb id [])))))
+                (json context :ok (.entity orderdb id [])))))
    :error error-handler'})
 
 (def delete-order
@@ -208,7 +205,7 @@
    :enter (fn [context]
             (let [tx-data (:tx-data context)
                   id (UUID/fromString (:id tx-data))
-                  tx (.delete @orderdb id)]
+                  tx (.delete orderdb id)]
               (if (nil? tx)
                 (json context :not-found "No such order")
                 (json context :ok "Success"))))

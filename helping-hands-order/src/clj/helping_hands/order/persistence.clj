@@ -1,7 +1,8 @@
 (ns helping-hands.order.persistence
   "Persistence Port And Adapter for Order"
   (:require [xtdb.api :as xt]
-            [helping-hands.order.utils :as u]))
+            [helping-hands.order.utils :as u]
+            [helping-hands.order.config :as cfg]))
 
 (defprotocol OrderDb
   "Abstraction for order database"
@@ -13,7 +14,9 @@
   (orders [this uid fields]
     "Gets all the orders of the authenticated user with all or requested fields")
   (delete [this id]
-    "Deletes the specified order entity"))
+    "Deletes the specified order entity")
+  (close [this]
+    "Closes the database"))
 
 (defn- get-entity [node id fields]
   (let [fields-to-pull (if (empty? fields) '[*] fields)]
@@ -56,12 +59,14 @@
         (map #(select-keys % (map keyword fields)) orders))))
   (delete [_ id]
     (->> (xt/submit-tx node [[::xt/delete id]])
-         (xt/await-tx node))))
+         (xt/await-tx node)))
+  (close [_]
+    (.close node)))
 
 (defn create-order-database
   "Creates a order database and returns the connection"
   []
-  (let [home-dir (System/getenv "HOME")
+  (let [home-dir (cfg/get-conf :home)
         rocksdb-dir (str home-dir (if (u/windows?) "\\.rocksdb\\" "/.rocksdb/"))
         ix-store (u/abs-path->uri (str rocksdb-dir "order-ix-store"))
         doc-store (u/abs-path->uri (str rocksdb-dir "order-doc-store"))
