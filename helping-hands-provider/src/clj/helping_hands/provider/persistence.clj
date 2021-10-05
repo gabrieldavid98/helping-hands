@@ -1,7 +1,8 @@
 (ns helping-hands.provider.persistence
   "Persistence Port and Adapter for Provider Service"
   (:require [xtdb.api :as xt]
-            [helping-hands.provider.utils :as u]))
+            [helping-hands.provider.utils :as u]
+            [helping-hands.provider.config :as cfg]))
 
 (defprotocol ProviderDb
   "Abstraction for privider database"
@@ -10,7 +11,9 @@
   (entity [this id fields]
           "Gets the specified provider with all or requested fields")
   (delete [this id]
-          "Deletes the specified provider entity"))
+          "Deletes the specified provider entity")
+  (close [this]
+         "Closes the database"))
 
 (defn- get-entity [node id fields]
   (let [fileds-to-pull (if (empty? fields) '[*] fields)]
@@ -34,12 +37,14 @@
     (get-entity node id fields))
   (delete [_ id]
     (->> (xt/submit-tx node [[::xt/delete id]])
-         (xt/await-tx node))))
+         (xt/await-tx node)))
+  (close [_]
+        (.close node)))
 
 (defn create-provider-database 
   "Creates a provider database and returns the connection"
   []
-  (let [home-dir (System/getenv "HOME")
+  (let [home-dir (cfg/get-conf :home)
         rocksdb-dir (str home-dir (if (u/windows?) "\\.rocksdb\\" "/.rocksdb/"))
         ix-store (u/abs-path->uri (str rocksdb-dir "provider-ix-store"))
         doc-store (u/abs-path->uri (str rocksdb-dir "provider-doc-store"))

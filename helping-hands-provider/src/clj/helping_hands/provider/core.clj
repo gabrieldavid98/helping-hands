@@ -1,15 +1,11 @@
 (ns helping-hands.provider.core
   "Initialize Helping Hands Provider Service"
-  (:require [cheshire.core :as jp]
-            [clojure.string :as s]
-            [helping-hands.provider.persistence :as p]
+  (:require [clojure.string :as s]
             [io.pedestal.interceptor.chain :as chain]
-            [helping-hands.provider.http :refer [json]])
+            [helping-hands.provider.http :refer [json]]
+            [helping-hands.provider.state :refer [providerdb]])
   (:import [java.io IOException]
            [java.util UUID]))
-
-(def ^:private providerdb
-  (delay (p/create-provider-database)))
 
 ;; ----------------------------------------
 ;; Validation Interceptors
@@ -90,7 +86,7 @@
    :enter (fn [context]
             (let [tx-data (:tx-data context)
                   id (-> tx-data :id UUID/fromString)
-                  entity (.entity @providerdb id (:fields tx-data))]
+                  entity (.entity providerdb id (:fields tx-data))]
               (if (empty? entity)
                 (json context :not-found "Not such provider")
                 (json context :ok entity))))
@@ -103,13 +99,13 @@
                   id (if-let [id* (:id tx-data)]
                        (UUID/fromString id*)
                        (UUID/randomUUID))
-                  tx (.upsert @providerdb id (:name tx-data)
+                  tx (.upsert providerdb id (:name tx-data)
                               (:mobile tx-data) (:since tx-data)
                               (:rating tx-data))]
               (if (nil? tx)
                 (throw (IOException.
                         (str "Upsert failed for provider: " id)))
-                (json context :ok (.entity @providerdb id [])))))
+                (json context :ok (.entity providerdb id [])))))
    :error error-handler'})
 
 (def create-provider
@@ -117,13 +113,13 @@
    :enter (fn [context]
             (let [tx-data (:tx-data context)
                   id (UUID/randomUUID)
-                  tx (.upsert @providerdb id (:name tx-data)
+                  tx (.upsert providerdb id (:name tx-data)
                               (:mobile tx-data) (:since tx-data)
                               (:rating tx-data))]
               (if (nil? tx)
                 (throw (IOException.
                         (str "Provider creation failed")))
-                (json context :ok (.entity @providerdb id [])))))
+                (json context :ok (.entity providerdb id [])))))
    :error error-handler'})
 
 (def delete-provider
@@ -133,7 +129,7 @@
                   id (if-let [id* (:id tx-data)]
                        (UUID/fromString id*)
                        (UUID/randomUUID))
-                  tx (.delete @providerdb id)]
+                  tx (.delete providerdb id)]
               (if (nil? tx)
                 (json context :not-found "Not such provider")
                 (json context :ok "Success"))))

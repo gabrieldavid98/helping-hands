@@ -18,9 +18,12 @@
                  [org.slf4j/log4j-over-slf4j "1.7.26"]
                  [com.xtdb/xtdb-core "1.19.0-beta1"]
                  [com.xtdb/xtdb-rocksdb "1.19.0-beta1"]
-                 [com.xtdb/xtdb-jdbc "1.19.0-beta1"]]
+                 [com.xtdb/xtdb-jdbc "1.19.0-beta1"]
+                 [mount "0.1.16"]
+                 [com.grammarly/omniconf "0.4.3"]]
   :min-lein-version "2.0.0"
   :resource-paths ["config", "resources"]
+  :jvm-opts ["-Dconf=config/conf.edn"]
   :source-paths ["src/clj"]
   :java-source-paths ["src/java"]
   :test-paths ["test/clj" "test/java"]
