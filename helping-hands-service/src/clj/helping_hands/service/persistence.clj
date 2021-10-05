@@ -1,6 +1,7 @@
 (ns helping-hands.service.persistence
   (:require [xtdb.api :as xt]
-            [helping-hands.service.utils :as u]))
+            [helping-hands.service.utils :as u]
+            [helping-hands.service.config :as cfg]))
 
 (defprotocol ServiceDb
   "Abstraction for service database"
@@ -9,7 +10,9 @@
   (entity [this id fields]
           "Gets the specified service with all or requested fields")
   (delete [this id]
-          "Deletes the specified entity"))
+          "Deletes the specified entity")
+  (close [this]
+         "Closes the database"))
 
 (defn- get-entity [node id fields]
   (let [fields-to-pull (if (empty? fields) '[*] fields)]
@@ -35,12 +38,14 @@
           (get-entity node id fields))
   (delete [_ id]
           (->> (xt/submit-tx node [[::xt/delete id]])
-               (xt/await-tx node))))
+               (xt/await-tx node)))
+  (close [_]
+         (.close node)))
 
 (defn create-service-database 
   "Creates a service database and returns the connection"
   []
-  (let [home-dir (System/getenv "HOME")
+  (let [home-dir (cfg/get-conf :home)
         rocksdb-dir (str home-dir (if (u/windows?) "\\.rocksdb\\" "/.rocksdb/"))
         ix-store (u/abs-path->uri (str rocksdb-dir "service-ix-store"))
         doc-store (u/abs-path->uri (str rocksdb-dir "service-doc-store"))

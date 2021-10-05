@@ -1,12 +1,10 @@
 (ns helping-hands.service.core
   (:require [clojure.string :as s]
-            [helping-hands.service.persistence :as p]
             [helping-hands.service.http :refer [json]]
-            [io.pedestal.interceptor.chain :as chain])
+            [io.pedestal.interceptor.chain :as chain]
+            [helping-hands.service.state :refer [servicedb]])
   (:import [java.io IOException]
            [java.util UUID]))
-
-(def ^:private servicedb (delay (p/create-service-database)))
 
 (defn- validate-rating-cost
   "Validates the rating cost"
@@ -107,7 +105,7 @@
    :enter (fn [context]
             (let [id (-> context :tx-data :id UUID/fromString)
                   fields (-> context :tx-data :fields)
-                  entity (.entity @servicedb id fields)]
+                  entity (.entity servicedb id fields)]
               (if (empty? entity)
                 (json context :not-found "No such service")
                 (json context :ok entity))))
@@ -120,33 +118,33 @@
                   id (if-let [id' (:id tx-data)]
                        (UUID/fromString id')
                        (UUID/randomUUID))
-                  tx (.upsert @servicedb id (:type tx-data) (:provider tx-data)
+                  tx (.upsert servicedb id (:type tx-data) (:provider tx-data)
                               (:area tx-data) (:cost tx-data) (:rating tx-data)
                               (:status tx-data))]
               (if (nil? tx)
                 (throw (IOException. 
                         (str "Upsert failed for service: " id)))
-                (json context :ok (.entity @servicedb id [])))))})
+                (json context :ok (.entity servicedb id [])))))})
 
 (def create-service
   {:name ::service-create
    :enter (fn [context]
             (let [tx-data (:tx-data context)
                   id (UUID/randomUUID)
-                  tx (.upsert @servicedb id (:type tx-data) (:provider tx-data)
+                  tx (.upsert servicedb id (:type tx-data) (:provider tx-data)
                               (:area tx-data) (:cost tx-data) (:rating tx-data)
                               (:status tx-data))]
               (if (nil? tx)
                 (throw (IOException.
                         (str "Service creation failed")))
-                (json context :created (.entity @servicedb id [])))))
+                (json context :created (.entity servicedb id [])))))
    :error error-handler'})
 
 (def delete-service
   {:name ::service-delete
    :enter (fn [context]
             (let [id (-> context :tx-data :id)
-                  tx (.delete @servicedb id)]
+                  tx (.delete servicedb id)]
               (if (nil? tx)
                 (throw (IOException.
                         (str "Delete failed for service: " id)))
